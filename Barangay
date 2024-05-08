@@ -1,0 +1,851 @@
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.sql.*;
+import java.text.SimpleDateFormat;
+import java.sql.Timestamp;
+import java.util.Map;
+import java.util.HashMap;
+
+
+
+public class BARANGAY extends javax.swing.JFrame {
+
+    private static final String JDBC_URL = "jdbc:mysql://localhost:3306/mysql?zeroDateTimeBehavior=CONVERT_TO_NULL";
+    private static final String DB_USERNAME = "root";
+    private static final String DB_PASSWORD = "081302";
+    private Connection connection;
+    private static final String LAST_TIME_IN_FILE = "last_time_in.txt";
+    private boolean isFiltered = false;
+    private DefaultTableModel originalTableModel;
+    private Map<Integer, Object[]> storedChanges;
+    
+    
+  
+
+    private void alterTimeOutColumnType() {
+    try {
+        String sql = "ALTER TABLE attendance MODIFY COLUMN time_out TIMESTAMP";
+        PreparedStatement statement = connection.prepareStatement(sql);
+        statement.executeUpdate();
+        System.out.println("Column 'time_out' altered successfully."); 
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to alter column 'time_out'.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+
+    
+    private Timestamp lastTimeIn;
+
+    public BARANGAY() {
+    initComponents();
+    initializeDatabase();
+    correctTimestampFormat();
+    updateAttendanceTable();
+    try {
+        loadLastTimeIn();
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to load last time in.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+    
+    // Call storeOriginalTableModel to store the original table model
+    storeOriginalTableModel();
+    
+    setVisible(true);
+}
+    private void storeCurrentChanges() {
+    storedChanges = storeChangesFromTable();
+}
+    private void storeOriginalTableModel() {
+        originalTableModel = (DefaultTableModel) jTable1.getModel();
+    }
+
+    // Define the storeChangesFromTable method
+    private Map<Integer, Object[]> storeChangesFromTable() {
+        Map<Integer, Object[]> changes = new HashMap<>();
+        DefaultTableModel model = (DefaultTableModel) jTable1.getModel();
+        for (int row = 0; row < model.getRowCount(); row++) {
+            Object[] rowData = new Object[model.getColumnCount()];
+            for (int col = 0; col < model.getColumnCount(); col++) {
+                rowData[col] = model.getValueAt(row, col);
+            }
+            changes.put(row, rowData);
+        }
+        return changes;
+    }
+
+    // Define the applyChangesToTable method
+    private void applyChangesToTable(Map<Integer, Object[]> changes) {
+    DefaultTableModel model = (DefaultTableModel) jTable1.getModel();
+    for (Map.Entry<Integer, Object[]> entry : changes.entrySet()) {
+        int row = entry.getKey();
+        Object[] rowData = entry.getValue();
+        for (int col = 0; col < rowData.length; col++) {
+            model.setValueAt(rowData[col], row, col); // This is line 95
+        }
+    }
+}
+
+
+    private void applyChangesToTable(DefaultTableModel model) {
+    jTable1.setModel(model);
+}
+
+     
+     private void updateLastTimeIn() {
+    try {
+        String sql = "UPDATE last_time_in SET last_time = CURRENT_TIMESTAMP()";
+        PreparedStatement statement = connection.prepareStatement(sql);
+        int rowsUpdated = statement.executeUpdate();
+        System.out.println("Last time in updated. Rows updated: " + rowsUpdated);
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to update last time in.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+     private void addPurposeColumnToAttendanceTable() {
+    try {
+        String sql = "ALTER TABLE attendance ADD COLUMN purpose VARCHAR(255)";
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(sql);
+        System.out.println("Successfully added 'purpose' column to the attendance table.");
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to add 'purpose' column to the attendance table.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+
+
+    public void initializeDatabase() {
+    try {
+        // Update the database URL to connect to the correct database
+        connection = DriverManager.getConnection( "jdbc:mysql://localhost:3306/mysql?zeroDateTimeBehavior=CONVERT_TO_NULL", "root", "081302");
+        System.out.println("Database connection initialized."); 
+        
+        String createTableSQL = "CREATE TABLE IF NOT EXISTS last_time_in (last_time TIMESTAMP)";
+        PreparedStatement createTableStatement = connection.prepareStatement(createTableSQL);
+        createTableStatement.executeUpdate();
+        
+    } catch (SQLException e) {
+        e.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to connect to the database.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+
+
+    private void updateAttendanceTable() {
+    if (connection == null) {
+        
+        JOptionPane.showMessageDialog(null, "Database connection is not initialized.", "Error", JOptionPane.ERROR_MESSAGE);
+        return;
+    }
+
+    try {
+        DefaultTableModel model = new DefaultTableModel();
+        
+        model.addColumn("NAME");
+        model.addColumn("DATE");
+        model.addColumn("TIME IN");
+        model.addColumn("TIME OUT");
+
+        String sql = "SELECT * FROM attendance";
+        Statement statement = connection.createStatement();
+        ResultSet resultSet = statement.executeQuery(sql);
+        while (resultSet.next()) {
+           
+            String employeeName = resultSet.getString("employee_name");
+            Timestamp timeIn = resultSet.getTimestamp("time_in");
+            Timestamp timeOut = resultSet.getTimestamp("time_out");
+            String formattedDate = (timeIn != null) ? new SimpleDateFormat("yyyy-MM-dd").format(timeIn) : "";
+            String formattedTimeIn = (timeIn != null) ? new SimpleDateFormat("hh:mm:ss a").format(timeIn) : "";
+            String formattedTimeOut = (timeOut != null) ? new SimpleDateFormat("hh:mm:ss a").format(timeOut) : "";
+
+            
+            model.addRow(new Object[]{employeeName, formattedDate, formattedTimeIn, formattedTimeOut});
+        }
+
+        jTable1.setModel(model);
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to update attendance table.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+
+    private void correctTimestampFormat() {
+    try {
+        String sql = "UPDATE attendance SET time_in = CURRENT_TIMESTAMP() WHERE time_in IS NULL";
+        PreparedStatement statement = connection.prepareStatement(sql);
+        int rowsUpdated = statement.executeUpdate();
+        System.out.println("Rows updated for timestamp correction: " + rowsUpdated);
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to correct timestamp format: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+    }
+    }
+    private void filterTableByEmployeeName(String employeeName) {
+    DefaultTableModel model = (DefaultTableModel) jTable1.getModel();
+    DefaultTableModel filteredModel = new DefaultTableModel();
+
+    // Copy the column names to the filtered model
+    for (int i = 0; i < model.getColumnCount(); i++) {
+        filteredModel.addColumn(model.getColumnName(i));
+    }
+
+    // Filter the rows based on the employee name
+    for (int row = 0; row < model.getRowCount(); row++) {
+        String name = model.getValueAt(row, 0).toString();
+
+        if (name.equalsIgnoreCase(employeeName)) {
+            Object[] rowData = new Object[model.getColumnCount()];
+            for (int col = 0; col < model.getColumnCount(); col++) {
+                rowData[col] = model.getValueAt(row, col);
+            }
+            filteredModel.addRow(rowData);
+        }
+    }
+
+    if (filteredModel.getRowCount() > 0) {
+        jTable1.setModel(filteredModel); // Update the table with filtered data
+    } else {
+        JOptionPane.showMessageDialog(null, "No attendance record found for employee: " + employeeName, "Attendance Details", JOptionPane.INFORMATION_MESSAGE);
+    }
+    }
+
+// Method to handle time in with purpose for guest
+// Method to handle time in with purpose for guest
+private void handleTimeInWithPurpose(String userType, String purpose) {
+    String guestName = JOptionPane.showInputDialog(null, "Enter Guest Name:", "Time In", JOptionPane.QUESTION_MESSAGE);
+    if (guestName != null && !guestName.isEmpty()) {
+        try {
+            if (isAttendanceRecordedForToday(guestName)) {
+                JOptionPane.showMessageDialog(null, "Attendance for " + guestName + " has already been recorded today.", "Error", JOptionPane.ERROR_MESSAGE);
+            } else {
+                correctTimestampFormat();
+                int rowsUpdated = recordAttendanceWithPurpose(guestName, true, purpose); // Pass purpose to recordAttendanceWithPurpose
+                if (rowsUpdated > 0) {
+                    updateLastTimeIn();
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(null, "Failed to record guest attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+}
+
+private int recordAttendanceWithPurpose(String guestName, boolean isTimeIn, String purpose) {
+    int rowsUpdated = 0;
+    try {
+        String sql;
+        String action;
+        if (isTimeIn) {
+            sql = "INSERT INTO attendance (employee_name, time_in, action, purpose) VALUES (?, CURRENT_TIMESTAMP(), 'Time In', ?)"; // Include purpose
+            action = "Time In";
+        } else {
+            sql = "UPDATE attendance SET action = 'Time Out' WHERE employee_name = ? AND time_out IS NULL";
+            action = "Time Out";
+        }
+
+        PreparedStatement statement = connection.prepareStatement(sql);
+        statement.setString(1, guestName);
+        if (isTimeIn) {
+            statement.setString(2, purpose); // Set purpose parameter
+        }
+        rowsUpdated = statement.executeUpdate();
+        System.out.println("Rows updated for attendance recording: " + rowsUpdated);
+        if (isTimeIn && rowsUpdated > 0) {
+            updateLastTimeIn();
+        }
+
+        updateAttendanceTable();
+
+        JOptionPane.showMessageDialog(null, "Guest Attendance Recorded", "Attendance Recorded", JOptionPane.INFORMATION_MESSAGE);
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to record guest attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+    return rowsUpdated;
+
+}
+     private void editAttendance() {
+    // Get the selected row index
+    int selectedRowIndex = jTable1.getSelectedRow();
+    
+    // Check if any row is selected
+    if (selectedRowIndex != -1) {
+        // Check if the selected row has data in all columns
+        if (jTable1.getValueAt(selectedRowIndex, 0) != null &&
+            jTable1.getValueAt(selectedRowIndex, 1) != null &&
+            jTable1.getValueAt(selectedRowIndex, 2) != null &&
+            jTable1.getValueAt(selectedRowIndex, 3) != null &&
+            jTable1.getValueAt(selectedRowIndex, 4) != null) {
+            
+            // Get data from the selected row
+            String employeeName = jTable1.getValueAt(selectedRowIndex, 0).toString();
+            String date = jTable1.getValueAt(selectedRowIndex, 1).toString();
+            String timeIn = jTable1.getValueAt(selectedRowIndex, 2).toString();
+            String timeOut = jTable1.getValueAt(selectedRowIndex, 3).toString();
+            String purpose = jTable1.getValueAt(selectedRowIndex, 4).toString();
+            
+            // Check if the selected row belongs to the guest table
+            boolean isGuestTable = jTable1.getColumnName(0).equals("Guest Name");
+            
+            // Create and show the EditAttendanceDialog with the retrieved data
+            EditAttendanceDialog editDialog = new EditAttendanceDialog(this, true, employeeName, date, timeIn, timeOut, purpose);
+            editDialog.setVisible(true);
+            
+            // Update the table if changes were made
+            if (editDialog.isDataChanged()) {
+                // Refresh the appropriate table to reflect the changes
+                if (isGuestTable) {
+                    displayGuestAttendanceTable(); // Update guest attendance table
+                } else {
+                    updateAttendanceTable(); // Update employee attendance table
+                }
+            }
+        } else {
+            JOptionPane.showMessageDialog(this, "Selected row is incomplete. Please select a valid row.", "Incomplete Row", JOptionPane.WARNING_MESSAGE);
+        }
+    } else {
+        JOptionPane.showMessageDialog(this, "Please select a row to edit.", "No Row Selected", JOptionPane.WARNING_MESSAGE);
+    }
+     }
+
+
+    /**
+     * This method is called from within the constructor to initialize the form.
+     * WARNING: Do NOT modify this code. The content of this method is always
+     * regenerated by the Form Editor.
+     */
+    @SuppressWarnings("unchecked")
+    // <editor-fold defaultstate="collapsed" desc="Generated Code">                          
+    private void initComponents() {
+
+        jMenuItem1 = new javax.swing.JMenuItem();
+        jLabel4 = new javax.swing.JLabel();
+        jButton1 = new javax.swing.JButton();
+        jLabel3 = new javax.swing.JLabel();
+        jButton2 = new javax.swing.JButton();
+        jScrollPane1 = new javax.swing.JScrollPane();
+        jTable1 = new javax.swing.JTable();
+        jLabel2 = new javax.swing.JLabel();
+        jButton4 = new javax.swing.JButton();
+        jTextField1 = new javax.swing.JTextField();
+        jButton5 = new javax.swing.JButton();
+        jButton3 = new javax.swing.JButton();
+        jButton6 = new javax.swing.JButton();
+        jLabel1 = new javax.swing.JLabel();
+
+        jMenuItem1.setText("jMenuItem1");
+
+        jLabel4.setText("jLabel4");
+
+        setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
+        setBackground(new java.awt.Color(255, 255, 255));
+        getContentPane().setLayout(null);
+
+        jButton1.setFont(new java.awt.Font("Segoe UI", 1, 18)); // NOI18N
+        jButton1.setText("RECORD ATTENDANCE");
+        jButton1.setBorder(javax.swing.BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.RAISED));
+        jButton1.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton1ActionPerformed(evt);
+            }
+        });
+        getContentPane().add(jButton1);
+        jButton1.setBounds(50, 150, 220, 29);
+
+        jLabel3.setIcon(new javax.swing.ImageIcon("C:\\Users\\63910\\Desktop\\5.png")); // NOI18N
+        jLabel3.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
+        getContentPane().add(jLabel3);
+        jLabel3.setBounds(310, 10, 100, 100);
+
+        jButton2.setFont(new java.awt.Font("Segoe UI", 1, 12)); // NOI18N
+        jButton2.setText("DELETE ATTENDANCE");
+        jButton2.setBorder(javax.swing.BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.RAISED));
+        jButton2.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton2ActionPerformed(evt);
+            }
+        });
+        getContentPane().add(jButton2);
+        jButton2.setBounds(50, 210, 140, 30);
+
+        jTable1.setBorder(javax.swing.BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.LOWERED));
+        jTable1.setModel(new javax.swing.table.DefaultTableModel(
+            new Object [][] {
+                {null, null, null, null},
+                {null, null, null, null},
+                {null, null, null, null},
+                {null, null, null, null}
+            },
+            new String [] {
+                "NAME", "DATE", "TIME IN", "TIME OUT"
+            }
+        ));
+        jScrollPane1.setViewportView(jTable1);
+
+        getContentPane().add(jScrollPane1);
+        jScrollPane1.setBounds(50, 250, 600, 200);
+
+        jLabel2.setFont(new java.awt.Font("Arial Black", 1, 24)); // NOI18N
+        jLabel2.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+        jLabel2.setText("BARANGAY SAN ISIDRO ATTENDANCE SYSTEM");
+        getContentPane().add(jLabel2);
+        jLabel2.setBounds(0, 70, 710, 110);
+
+        jButton4.setFont(new java.awt.Font("Segoe UI", 1, 14)); // NOI18N
+        jButton4.setText("ADMIN");
+        jButton4.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton4ActionPerformed(evt);
+            }
+        });
+        getContentPane().add(jButton4);
+        jButton4.setBounds(550, 210, 100, 30);
+
+        jTextField1.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jTextField1ActionPerformed(evt);
+            }
+        });
+        getContentPane().add(jTextField1);
+        jTextField1.setBounds(360, 150, 170, 30);
+
+        jButton5.setFont(new java.awt.Font("Segoe UI", 1, 10)); // NOI18N
+        jButton5.setText("BACK");
+        jButton5.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton5ActionPerformed(evt);
+            }
+        });
+        getContentPane().add(jButton5);
+        jButton5.setBounds(610, 456, 80, 20);
+
+        jButton3.setFont(new java.awt.Font("Segoe UI", 1, 12)); // NOI18N
+        jButton3.setText("Search");
+        jButton3.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton3ActionPerformed(evt);
+            }
+        });
+        getContentPane().add(jButton3);
+        jButton3.setBounds(540, 150, 100, 30);
+
+        jButton6.setText("Guest");
+        jButton6.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton6ActionPerformed(evt);
+            }
+        });
+        getContentPane().add(jButton6);
+        jButton6.setBounds(420, 210, 100, 30);
+
+        jLabel1.setBackground(new java.awt.Color(255, 255, 255));
+        jLabel1.setIcon(new javax.swing.ImageIcon("C:\\Users\\63910\\Desktop\\logo.png")); // NOI18N
+        jLabel1.setLabelFor(jLabel1);
+        jLabel1.setRequestFocusEnabled(false);
+        getContentPane().add(jLabel1);
+        jLabel1.setBounds(0, 0, 700, 480);
+
+        pack();
+    }// </editor-fold>                        
+   
+    private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {                                         
+    String[] userTypeOptions = {"Employee"};
+    int userTypeChoice = JOptionPane.showOptionDialog(null, "Are you an Employee?", "Select User Type", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, userTypeOptions, userTypeOptions[0]);
+
+    if (userTypeChoice == 0) { // Valid user type selection (Employee)
+        // Handle Employee actions
+        String[] actionOptions = {"Time In", "Time Out"};
+        int actionChoice = JOptionPane.showOptionDialog(null, "Choose Action for Employee", "Select Action", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, actionOptions, actionOptions[0]);
+
+        if (actionChoice == 0) {
+            handleTimeIn("Employee");
+        } else if (actionChoice == 1) {
+            handleTimeOut("Employee");
+        }
+    
+    }
+}
+
+   private void handleTimeIn(String userType) {
+    String employeeName = JOptionPane.showInputDialog(null, "Enter " + userType + " Name:", "Time In", JOptionPane.QUESTION_MESSAGE);
+    if (employeeName != null && !employeeName.isEmpty()) {
+        try {
+            if (isAttendanceRecordedForToday(employeeName)) {
+                JOptionPane.showMessageDialog(null, "Attendance for " + employeeName + " has already been recorded today.", "Error", JOptionPane.ERROR_MESSAGE);
+            } else {
+                correctTimestampFormat();
+               int rowsUpdated = recordAttendance(employeeName, true, ""); // Passing an empty string as the purpose
+                if (rowsUpdated > 0) {
+                    updateLastTimeIn();
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(null, "Failed to record attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+}
+
+       private void handleTimeOut(String userType) {
+       try {
+    String employeeName = JOptionPane.showInputDialog(null, "Enter " + userType + " Name:", "Time Out", JOptionPane.QUESTION_MESSAGE);
+        if (employeeName != null && !employeeName.isEmpty()) {
+            Timestamp timeIn = getRecordedTimeIn(employeeName);
+            if (timeIn != null) {
+                
+                Timestamp timeOut = new Timestamp(System.currentTimeMillis());
+                
+                
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                String formattedTimeOut = sdf.format(timeOut);
+                
+                
+                String sql = "UPDATE attendance SET time_out = ? WHERE employee_name = ? AND DATE(time_in) = CURDATE()";
+                PreparedStatement statement = connection.prepareStatement(sql);
+                statement.setString(1, formattedTimeOut);
+                statement.setString(2, employeeName);
+                int rowsUpdated = statement.executeUpdate();
+
+                if (rowsUpdated > 0) {
+                    updateAttendanceTable(); 
+                    JOptionPane.showMessageDialog(null, "Attendance updated!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(null, "Failed to update attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } else {
+                JOptionPane.showMessageDialog(null, "No time in recorded for the employee today.", "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to update attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+
+
+
+    private Timestamp getRecordedTimeIn(String employeeName) throws SQLException {
+    String sql = "SELECT time_in FROM attendance WHERE employee_name = ? AND DATE(time_in) = CURDATE()";
+    PreparedStatement statement = connection.prepareStatement(sql);
+    statement.setString(1, employeeName);
+    ResultSet resultSet = statement.executeQuery();
+    if (resultSet.next()) {
+        return resultSet.getTimestamp("time_in");
+    }
+    return null;
+}
+
+
+    private boolean isAttendanceRecordedForToday(String employeeName) throws SQLException {
+    String sql = "SELECT COUNT(*) FROM attendance WHERE employee_name = ? AND DATE(time_in) = CURDATE()";
+    PreparedStatement statement = connection.prepareStatement(sql);
+    statement.setString(1, employeeName);
+    ResultSet resultSet = statement.executeQuery();
+    if (resultSet.next()) {
+        int count = resultSet.getInt(1);
+        return count > 0;
+    }
+    return false;
+}
+
+
+    private void loadLastTimeIn() throws SQLException {
+        String selectSQL = "SELECT last_time FROM last_time_in";
+        PreparedStatement selectStatement = connection.prepareStatement(selectSQL);
+        ResultSet resultSet = selectStatement.executeQuery();
+        if (resultSet.next()) {
+            lastTimeIn = resultSet.getTimestamp("last_time");
+        } else {
+            lastTimeIn = null;
+        }
+    }
+
+   private int recordAttendance(String employeeName, boolean isTimeIn, String string) throws SQLException {
+    int rowsUpdated = 0;
+    try {
+        String sql;
+        if (isTimeIn) {
+            sql = "INSERT INTO attendance (employee_name, time_in, action) VALUES (?, CURRENT_TIMESTAMP(), 'Time In')";
+        } else {
+            sql = "UPDATE attendance SET action = 'Time Out' WHERE employee_name = ? AND time_out IS NULL";
+        }
+
+        PreparedStatement statement = connection.prepareStatement(sql);
+        statement.setString(1, employeeName);
+        rowsUpdated = statement.executeUpdate();
+        System.out.println("Rows updated for attendance recording: " + rowsUpdated);
+        if (isTimeIn && rowsUpdated > 0) {
+            updateLastTimeIn();
+        }
+
+        updateAttendanceTable();
+
+        JOptionPane.showMessageDialog(null, "Attendance Recorded", "Attendance Recorded", JOptionPane.INFORMATION_MESSAGE);
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to record attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+        throw ex; // rethrowing the exception for upper layers to handle
+    }
+    return rowsUpdated;
+}
+
+    private Timestamp getLastTimeIn() throws SQLException {
+    String query = "SELECT last_time FROM last_time_in";
+    PreparedStatement statement = connection.prepareStatement(query);
+    ResultSet resultSet = statement.executeQuery();
+    if (resultSet.next()) {
+        return resultSet.getTimestamp("last_time");
+    } else {
+        return null;
+    }
+
+
+    }                                        
+    
+    private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {                                         
+                                              
+   
+    JPanel panel = new JPanel();
+    panel.setLayout(new GridBagLayout());
+    GridBagConstraints gbc = new GridBagConstraints();
+    gbc.gridx = 0;
+    gbc.gridy = 0;
+    gbc.insets = new Insets(5, 5, 5, 5);
+
+    JTextField usernameField = new JTextField(15); 
+    JPasswordField passwordField = new JPasswordField(15); 
+    
+    panel.add(new JLabel("Admin Username:"), gbc);
+    gbc.gridx++;
+    panel.add(usernameField, gbc);
+    gbc.gridx = 0;
+    gbc.gridy++;
+    panel.add(new JLabel("Admin Password:"), gbc);
+    gbc.gridx++;
+    panel.add(passwordField, gbc);
+
+    int result = JOptionPane.showConfirmDialog(null, panel, "Admin Authentication", JOptionPane.OK_CANCEL_OPTION);
+
+    if (result == JOptionPane.OK_OPTION) {
+        String adminUsername = usernameField.getText();
+        String adminPassword = new String(passwordField.getPassword());
+
+        
+        if (adminUsername.equals("admin") && adminPassword.equals("password")) {
+           
+            int confirmation = JOptionPane.showConfirmDialog(null, "Are you sure?", "Confirmation", JOptionPane.YES_NO_OPTION);
+            if (confirmation == JOptionPane.YES_OPTION) {
+                try {
+                    int selectedIndex = jTable1.getSelectedRow(); 
+                    if (selectedIndex != -1) {
+                        String employeeName = jTable1.getValueAt(selectedIndex, 0).toString(); 
+
+                        String sql = "DELETE FROM attendance WHERE employee_name = ?";
+                        PreparedStatement statement = connection.prepareStatement(sql);
+                        statement.setString(1, employeeName);
+                        int rowsDeleted = statement.executeUpdate();
+
+                        if (rowsDeleted > 0) {
+                           
+                            DefaultTableModel model = (DefaultTableModel) jTable1.getModel();
+                            model.removeRow(selectedIndex);
+                            JOptionPane.showMessageDialog(null, "Attendance record deleted successfully.", "Success", JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(null, "Failed to delete attendance record.", "Error", JOptionPane.ERROR_MESSAGE);
+                        }
+                    } else {
+                        JOptionPane.showMessageDialog(null, "Please select an attendance record to delete.", "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                    JOptionPane.showMessageDialog(null, "Failed to delete attendance record.", "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        } else {
+            JOptionPane.showMessageDialog(null, "Admin authentication failed.", "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+    }                                        
+
+    private void jTextField1ActionPerformed(java.awt.event.ActionEvent evt) {                                            
+        String employeeName = jTextField1.getText().trim();
+
+    if (!employeeName.isEmpty()) {
+        DefaultTableModel model = (DefaultTableModel) jTable1.getModel();
+        boolean found = false;
+
+        for (int row = 0; row < model.getRowCount(); row++) {
+            String name = model.getValueAt(row, 0).toString();
+
+            if (name.equalsIgnoreCase(employeeName)) {
+                jTable1.setRowSelectionInterval(row, row); // Select the row with the employee's data
+                jTable1.scrollRectToVisible(jTable1.getCellRect(row, 0, true)); // Scroll to the selected row
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            JOptionPane.showMessageDialog(null, "No attendance record found for employee: " + employeeName, "Attendance Details", JOptionPane.INFORMATION_MESSAGE);
+        }
+    } else {
+        JOptionPane.showMessageDialog(null, "Please enter a valid employee name.", "Invalid Input", JOptionPane.ERROR_MESSAGE);
+    }
+
+    }                                           
+
+    private void jButton3ActionPerformed(java.awt.event.ActionEvent evt) {                                         
+     String employeeName = jTextField1.getText().trim();
+
+    if (!employeeName.isEmpty()) {
+        // Store current changes before searching
+        storeCurrentChanges();
+        
+        filterTableByEmployeeName(employeeName);
+    } else {
+        JOptionPane.showMessageDialog(null, "Please enter a valid employee name.", "Invalid Input", JOptionPane.ERROR_MESSAGE);
+    }
+    }                                        
+
+    private void jButton5ActionPerformed(java.awt.event.ActionEvent evt) {                                         
+    // Apply the original table model
+        jTable1.setModel(originalTableModel);
+        
+        // Apply changes made after searching
+        if (storedChanges != null) {
+            applyChangesToTable(storedChanges);
+        }
+        
+        storedChanges = null; // Reset stored changes after applying
+    
+
+    }                                        
+
+    private void jButton6ActionPerformed(java.awt.event.ActionEvent evt) {                                         
+                                       
+    String[] userTypeOptions = {"Guest"};
+    int userTypeChoice = JOptionPane.showOptionDialog(null, "Are you an Employee or a Guest?", "Select User Type", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, userTypeOptions, userTypeOptions[0]);
+
+    if (userTypeChoice == 0) { // If user selects Employee
+        // Handle Employee actions
+        String[] actionOptions = {"Time In", "Time Out"};
+        int actionChoice = JOptionPane.showOptionDialog(null, "Choose Action for Employee", "Select Action", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, actionOptions, actionOptions[0]);
+
+        if (actionChoice == 0) {
+            handleTimeIn("Employee");
+        } else if (actionChoice == 1) {
+            handleTimeOut("Employee");
+        }
+    } else if (userTypeChoice == 1) { // If user selects Guest
+        // Handle Guest actions
+        String guestName = JOptionPane.showInputDialog(null, "Enter Guest Name:", "Guest Attendance", JOptionPane.QUESTION_MESSAGE);
+        if (guestName != null && !guestName.isEmpty()) {
+            String[] actionOptions = {"Time In", "Time Out"};
+            int actionChoice = JOptionPane.showOptionDialog(null, "Choose Action for Guest", "Select Action", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, actionOptions, actionOptions[0]);
+
+            if (actionChoice == 0) {
+                String purpose = JOptionPane.showInputDialog(null, "Enter purpose for Time In:");
+                handleTimeInWithPurpose("Guest", guestName, purpose);
+            } else if (actionChoice == 1) {
+                handleTimeOut("Guest", guestName);
+            }
+        }
+    }
+}
+
+private void handleTimeInWithPurpose(String userType, String guestName, String purpose) {
+    // Handle Time In for Guest with Purpose
+    try {
+        correctTimestampFormat();
+        int rowsUpdated = recordAttendance(guestName, true, purpose);
+        if (rowsUpdated > 0) {
+            updateLastTimeIn();
+            updateAttendanceTable(); // Update employee attendance table
+            displayGuestAttendanceTable(); // Update guest attendance table
+        }
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to record guest attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+
+private void handleTimeOut(String userType, String guestName) {
+    // Handle Time Out for Guest
+    try {
+        Timestamp timeIn = getRecordedTimeIn(guestName);
+        if (timeIn != null) {
+            Timestamp timeOut = new Timestamp(System.currentTimeMillis());
+            int rowsUpdated = recordAttendance(guestName, false, ""); // Pass an empty string as the purpose
+
+            if (rowsUpdated > 0) {
+                updateAttendanceTable(); // Update employee attendance table
+                displayGuestAttendanceTable(); // Update guest attendance table
+                JOptionPane.showMessageDialog(null, "Guest attendance updated!", "Success", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(null, "Failed to update guest attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        } else {
+            JOptionPane.showMessageDialog(null, "No time in recorded for the guest today.", "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+        JOptionPane.showMessageDialog(null, "Failed to update guest attendance.", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+
+    }                                        
+
+    private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {                                         
+    editAttendance();
+}
+
+private void editAttendance() {
+    // Get the selected row index
+    int selectedRowIndex = jTable1.getSelectedRow();
+    
+    // Check if any row is selected
+    if (selectedRowIndex != -1) {
+        // Check if the selected row has data in all columns
+        if (jTable1.getValueAt(selectedRowIndex, 0) != null &&
+            jTable1.getValueAt(selectedRowIndex, 1) != null &&
+            jTable1.getValueAt(selectedRowIndex, 2) != null &&
+            jTable1.getValueAt(selectedRowIndex, 3) != null &&
+            jTable1.getValueAt(selectedRowIndex, 4) != null) {
+            
+            // Get data from the selected row
+            String employeeName = jTable1.getValueAt(selectedRowIndex, 0).toString();
+            String date = jTable1.getValueAt(selectedRowIndex, 1).toString();
+            String timeIn = jTable1.getValueAt(selectedRowIndex, 2).toString();
+            String timeOut = jTable1.getValueAt(selectedRowIndex, 3).toString();
+            String purpose = jTable1.getValueAt(selectedRowIndex, 4).toString();
+            
+            // Check if the selected row belongs to the guest table
+            boolean isGuestTable = jTable1.getColumnName(0).equals("Guest Name");
+            
+            // Create and show the EditAttendanceDialog with the retrieved data
+            EditAttendanceDialog editDialog = new EditAttendanceDialog(this, true, employeeName, date, timeIn, timeOut, purpose);
+            editDialog.setVisible(true);
+            
+            // Update the table if changes were made
+            if (editDialog.isDataChanged()) {
+                // Refresh the appropriate table to reflect the changes
+                if (isGuestTable) {
+                    displayGuestAttendanceTable(); // Update guest attendance table
+                } else {
+                    updateAttendanceTable(); // Update employee attendance table
+                }
+            }
+        } else {
+            JOptionPane.showMessageDialog(this, "Selected row is incomplete. Please select a valid row.", "Incomplete Row", JOptionPane.WARNING_MESSAGE);
+        }
+    } else {
+        JOptionPane.showMessageDialog(this, "Please select a row to edit.", "No Row Selected", JOptionPane.WARNING_MESSAGE);
+    }
+    }    
